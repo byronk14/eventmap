@@ -11,6 +11,7 @@ interface MapViewProps {
   onEventClick: (event: unknown) => void
   center?: [number, number]
   zoom?: number
+  selectedEventId?: string | null
 }
 
 const STADIA_API_KEY = process.env.NEXT_PUBLIC_STADIA_MAPS_API_KEY ?? ''
@@ -58,6 +59,7 @@ export default function MapView({
   onEventClick,
   center = [40.748, -73.985],
   zoom = 11,
+  selectedEventId,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null!)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -125,17 +127,48 @@ export default function MapView({
         },
       })
 
+      // Soft white halo — gives markers a clear outline on any basemap and a
+      // larger visual presence and click target.
+      map.addLayer({
+        id: 'events-pin-halo',
+        type: 'circle',
+        source: 'events',
+        filter: ['!=', ['get', 'id'], ''],
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 8, 10, 9, 14, 12, 18, 15],
+          'circle-color': '#ffffff',
+          'circle-opacity': 0.45,
+          'circle-blur': 0.6,
+        },
+      })
+
+      // Main marker — always visible, scales with zoom.
       map.addLayer({
         id: 'events-pin',
         type: 'circle',
         source: 'events',
         filter: ['!=', ['get', 'id'], ''],
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 4, 18, 8],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 12, 7, 16, 10, 20, 13],
           'circle-color': '#ff6b35',
-          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 0.8, 18, 1],
-          'circle-stroke-color': '#333333',
-          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 1.5],
+          'circle-opacity': 0.95,
+          'circle-stroke-color': '#1a1a2e',
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 0, 1.5, 16, 2.5],
+        },
+      })
+
+      // Highlighted marker for the currently selected event, drawn on top.
+      map.addLayer({
+        id: 'events-pin-selected',
+        type: 'circle',
+        source: 'events',
+        filter: ['==', ['get', 'id'], ''],
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 9, 12, 11, 16, 14, 20, 18],
+          'circle-color': '#2196f3',
+          'circle-opacity': 1,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 0, 2, 16, 3],
         },
       })
 
@@ -170,7 +203,8 @@ export default function MapView({
       reportRef.current(vp)
     })
 
-    map.on('click', 'events-pin', (e) => {
+    const clickableLayers = ['events-pin-halo', 'events-pin', 'events-pin-selected']
+    const handlePinClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.[0]) return
       const props = e.features[0].properties
       onEventClick({
@@ -187,14 +221,17 @@ export default function MapView({
         image: props.image,
         url: props.url,
       })
-    })
+    }
 
-    map.on('mouseenter', 'events-pin', () => {
-      map.getCanvas().style.cursor = 'pointer'
-    })
-    map.on('mouseleave', 'events-pin', () => {
-      map.getCanvas().style.cursor = ''
-    })
+    for (const layerId of clickableLayers) {
+      map.on('click', layerId, handlePinClick)
+      map.on('mouseenter', layerId, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', layerId, () => {
+        map.getCanvas().style.cursor = ''
+      })
+    }
 
     mapRef.current = map
 
@@ -228,6 +265,12 @@ export default function MapView({
 
     source.setData(events ?? { type: 'FeatureCollection', features: [] })
   }, [events])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    map.setFilter('events-pin-selected', selectedEventId ? ['==', ['get', 'id'], selectedEventId] : ['==', ['get', 'id'], ''])
+  }, [selectedEventId])
 
   return (
     <div

@@ -246,6 +246,7 @@ export default function Home() {
       <MapView
         events={events}
         center={mapCenter}
+        selectedEventId={selectedEvent?.id}
         onViewportChange={handleViewportChange}
         onEventClick={handleEventClick}
       />
